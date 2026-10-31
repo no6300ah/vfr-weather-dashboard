@@ -8,7 +8,7 @@ import streamlit as st
 DB = Path(__file__).with_name('aviation_weather.sqlite3')
 BASE = 'https://api.open-meteo.com/v1/forecast'
 MODELS = {'ICON D2': 'icon_d2', 'ECMWF IFS': 'ecmwf_ifs025', 'GFS': 'gfs_global'}
-HOURLY = ['visibility', 'cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high', 'cloud_cover', 'wind_speed_10m', 'wind_gusts_10m', 'wind_direction_10m', 'relative_humidity_2m', 'temperature_2m', 'dew_point_2m', 'pressure_msl']
+HOURLY = ['visibility', 'cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high', 'cloud_cover', 'wind_speed_10m', 'wind_gusts_10m', 'wind_direction_10m', 'relative_humidity_2m', 'temperature_2m', 'dew_point_2m', 'pressure_msl', 'surface_pressure']
 
 @st.cache_data(ttl=900, show_spinner=False)
 def fetch_model(lat, lon, model):
@@ -79,3 +79,48 @@ def get_accuracy(airport):
     df['observed_low_visibility'] = df['observed_km'] < 5
     df['low_vis_correct'] = df['predicted_low_visibility'] == df['observed_low_visibility']
     return df
+
+# Screening only: pressure-level temperature and relative humidity cannot diagnose
+# supercooled liquid water, droplet size or actual aircraft icing severity.
+LEVELS = [1000, 925, 850, 700, 600, 500]
+
+@st.cache_data(ttl=900, show_spinner=False)
+def fetch_vertical_profile(lat, lon, model):
+    variables = [f'{v}_{p}hPa' for p in LEVELS for v in ('temperature', 'relative_humidity', 'geopotential_height')]
+    params = {'latitude': lat, 'longitude': lon, 'models': model,
+              'hourly': ','.join(variables), 'timezone': 'Europe/Zurich',
+              'forecast_days': 4, 'temperature_unit': 'celsius'}
+    response = requests.get(BASE, params=params, timeout=30)
+    response.raise_for_status()
+    h = response.json()['hourly']
+    times = pd.to_datetime(h['time'])
+    records = []
+    for level in LEVELS:
+        def field(v):
+            k = f'{v}_{level}hPa'
+            key = next((x for x in h if x == k or x.startswith(k + '_')), None)
+            return h[key] if key else [None] * len(times)
+        t, rh, height = field('temperature'), field('relative_humidity'), field('geopotential_height')
+        for i, tm in enumerate(times):
+            if t[i] is None or rh[i] is None or height[i] is None: continue
+            records.append({'time': tm, 'level_hpa': level, 'altitude_ft': height[i] * 3.28084,
+                            'temp_c': t[i], 'rh_pct': rh[i]})
+    return pd.DataFrame.from_records(records)
+
+@st.cache_data(ttl=900, show_spinner=False)
+def fetch_optional(lat, lon, model):
+    """Optional fields may not exist in every forecast model; never fabricate values."""
+    variables = ['freezing_level_height', 'cloud_base']
+    params = {'latitude':lat,'longitude':lon,'models':model,'hourly':','.join(variables),
+              'timezone':'Europe/Zurich','forecast_days':4}
+    try:
+        r = requests.get(BASE,params=params,timeout=25); r.raise_for_status()
+        h = r.json().get('hourly', {})
+        if 'time' not in h: return pd.DataFrame()
+        result = pd.DataFrame({'time':pd.to_datetime(h['time'])})
+        for v in variables:
+            key = next((k for k in h if k == v or k.startswith(v+'_')), None)
+            result[v] = pd.to_numeric(h[key], errors='coerce') if key else float('nan')
+        return result
+    except (requests.RequestException, ValueError, KeyError):
+        return pd.DataFrame()
