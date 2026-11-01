@@ -72,7 +72,23 @@ t = float(first['temperature_2m']) if pd.notna(first.get('temperature_2m')) else
 td = float(first['dew_point_2m']) if pd.notna(first.get('dew_point_2m')) else None
 mslp = float(first['pressure_msl']) if pd.notna(first.get('pressure_msl')) else None
 sp = float(first['surface_pressure']) if pd.notna(first.get('surface_pressure')) else None
-rh = relative_humidity(t, td)
+from math import exp
+
+if t is not None and td is not None:
+
+    exponent = (
+
+        17.625 * td / (243.04 + td)
+
+        - 17.625 * t / (243.04 + t)
+
+    )
+
+    rh = max(0.0, min(100.0, 100.0 * exp(exponent)))
+
+else:
+
+    rh = None
 # Model MSL pressure is not airport QNH. For density altitude, use model surface pressure
 # and standard-atmosphere conversion, not model MSL pressure as observed QNH.
 pa = (145366.45 * (1 - (sp / 1013.25) ** 0.190284)) if sp and sp > 0 else None
