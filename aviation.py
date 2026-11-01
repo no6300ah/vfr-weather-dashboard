@@ -1,15 +1,21 @@
 import math
-
 def relative_humidity(temp_c, dew_c):
+
+    from math import exp
+
     if temp_c is None or dew_c is None:
+
         return None
 
     exponent = (
+
         17.625 * dew_c / (243.04 + dew_c)
+
         - 17.625 * temp_c / (243.04 + temp_c)
+
     )
 
-    return max(0, min(100, 100 * math.exp(exponent)))
+    return max(0.0, min(100.0, 100.0 * exp(exponent)))
 
 def isa_temp_c(altitude_ft):
     return 15 - 1.98 * altitude_ft / 1000
