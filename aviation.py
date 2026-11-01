@@ -1,19 +1,12 @@
-
 import math
 
-
 def relative_humidity(temp_c, dew_c):
-
     if temp_c is None or dew_c is None:
-
         return None
 
     exponent = (
-
         17.625 * dew_c / (243.04 + dew_c)
-
         - 17.625 * temp_c / (243.04 + temp_c)
-
     )
 
     return max(0, min(100, 100 * math.exp(exponent)))
